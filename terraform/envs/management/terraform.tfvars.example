@@ -1,0 +1,82 @@
+# EXAMPLE — copy to terraform.tfvars on Wyse and fill in real values
+# This file is in .gitignore — never commit real values
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Core Project Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Project prefix used for all resource names. Default is "forteca".
+project_name = "forteca"
+
+aws_account_id      = "111111111111"
+security_account_id = "222222222222"
+aws_region          = "eu-north-1"
+environment         = "lab"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Security & Alerting
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Email that receives HIGH/CRITICAL security alerts via SNS
+# Must confirm subscription from inbox after first apply
+alert_email = "your-security-alert-email@example.com"
+
+# Email address for operational alerts (Backup failures, CloudTrail logs, etc.)
+ops_alert_email = "ops-alerts@example.com"
+
+# Number of days KMS waits before permanently deleting a key (min 7, max 30)
+kms_deletion_window_days = 7
+
+# Retention period (in days) for CloudWatch Log Group containing CloudTrail events
+cloudtrail_log_retention_days = 90
+
+# S3 lifecycle policies (Audit logs)
+s3_transition_ia_days      = 90
+s3_transition_glacier_days = 365
+s3_expiration_days         = 2555 # 7 years retention for ISO 27001 compliance
+
+# Allow Terraform to delete S3 buckets and backup vaults even if they contain data.
+# Set to false in production environments.
+force_destroy = true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Accounts inside Organization
+# ─────────────────────────────────────────────────────────────────────────────
+
+member_accounts = {
+  "forteca-security" = {
+    email = "security@example.com"
+    ou    = "Security"
+  }
+  "forteca-workload" = {
+    email = "workload@example.com"
+    ou    = "Workload"
+  }
+}
+
+tags = {
+  Project     = "forteca-aws"
+  Environment = "lab"
+  ManagedBy   = "terraform"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Backup & Disaster Recovery
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Disaster Recovery region for cross-region backup copies
+dr_region = "eu-west-1"
+
+# Enable Vault Lock (WORM) on the primary backup vault.
+# WARNING: After changeable_for_days (3 days) expires, the lock is PERMANENT.
+# Keep false for normal lab work. Set true only to demonstrate ISO 27001 A.12.3.
+enable_vault_lock = false
+
+# How many days to keep daily backups
+daily_retention_days = 7
+
+# How many days to keep weekly backups
+weekly_retention_days = 30
+
+# How many days to keep cross-region DR copies
+dr_copy_retention_days = 14

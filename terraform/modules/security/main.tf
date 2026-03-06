@@ -522,78 +522,30 @@ resource "aws_s3_bucket_policy" "config" {
   depends_on = [aws_s3_bucket_public_access_block.config]
 }
 
-# IAM role — Config recorder assumes this role to read resource configs
-resource "aws_iam_role" "config_recorder" {
-  provider = aws.management
-  name     = "${var.project_name}-config-recorder-role"
+# CIS 3.5: Config must use service-linked role (not a custom IAM role) for resource recording.
+# AWS manages this role's permissions automatically — no custom policies needed.
+resource "aws_iam_service_linked_role" "config_management" {
+  provider         = aws.management
+  aws_service_name = "config.amazonaws.com"
+  description      = "Service-linked role for AWS Config in management account"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Service = "config.amazonaws.com" }
-      Action    = "sts:AssumeRole"
-      Condition = {
-        StringEquals = { "aws:SourceAccount" = var.aws_account_id }
-      }
-    }]
-  })
-
-  tags = {
-    Name        = "${var.project_name}-config-recorder-role"
-    Environment = var.environment
-    ManagedBy   = "terraform"
+  lifecycle {
+    prevent_destroy = true # role may already exist; import if needed
   }
-}
-
-# AWS managed policy gives Config read access to all supported resource types
-resource "aws_iam_role_policy_attachment" "config_recorder" {
-  provider   = aws.management
-  role       = aws_iam_role.config_recorder.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWS_ConfigRole"
-}
-
-# Additional inline policy: allow Config to write to our S3 and use our KMS key
-resource "aws_iam_role_policy" "config_recorder_s3" {
-  provider = aws.management
-  name     = "${var.project_name}-config-recorder-s3-kms"
-  role     = aws_iam_role.config_recorder.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = ["s3:PutObject", "s3:GetBucketAcl"]
-        Resource = [
-          aws_s3_bucket.config.arn,
-          "${aws_s3_bucket.config.arn}/*"
-        ]
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["kms:Decrypt", "kms:GenerateDataKey"]
-        Resource = aws_kms_key.config.arn
-      }
-    ]
-  })
 }
 
 # Config recorder — records ALL supported resource types including global (IAM, etc.)
 resource "aws_config_configuration_recorder" "main" {
   provider = aws.management
   name     = "${var.project_name}-config-recorder"
-  role_arn = aws_iam_role.config_recorder.arn
+  role_arn = aws_iam_service_linked_role.config_management.arn
 
   recording_group {
     all_supported                 = true
     include_global_resource_types = true # IAM, Route53 — global resources
   }
 
-  depends_on = [
-    aws_iam_role_policy_attachment.config_recorder,
-    aws_iam_role_policy.config_recorder_s3
-  ]
+  depends_on = [aws_iam_service_linked_role.config_management]
 }
 
 # Config delivery channel — where snapshots and change notifications go
@@ -694,6 +646,213 @@ resource "aws_config_configuration_aggregator" "org" {
     aws_config_aggregate_authorization.to_security,
     aws_iam_role_policy_attachment.config_aggregator
   ]
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AWS CONFIG — SECURITY ACCOUNT
+# CIS 3.5 checks each account independently. The aggregator in the Security
+# account is NOT a substitute for a local recorder — each account needs its own.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# KMS key for Config delivery S3 in Security account
+resource "aws_kms_key" "config_security" {
+  provider                = aws.security
+  description             = "KMS key for AWS Config delivery S3 bucket encryption (security account)"
+  deletion_window_in_days = var.kms_deletion_window_days
+  enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableSecurityAccountRoot"
+        Effect = "Allow"
+        Principal = { AWS = "arn:aws:iam::${var.security_account_id}:root" }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowConfigServiceEncrypt"
+        Effect = "Allow"
+        Principal = { Service = "config.amazonaws.com" }
+        Action   = ["kms:Decrypt", "kms:GenerateDataKey"]
+        Resource = "*"
+        Condition = {
+          StringEquals = { "aws:SourceAccount" = var.security_account_id }
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name        = "${var.project_name}-config-security-kms"
+    Environment = var.environment
+    ManagedBy   = "terraform"
+  }
+}
+
+resource "aws_kms_alias" "config_security" {
+  provider      = aws.security
+  name          = "alias/${var.project_name}-config-security"
+  target_key_id = aws_kms_key.config_security.key_id
+}
+
+# S3 bucket for Config delivery snapshots (security account)
+resource "aws_s3_bucket" "config_security" {
+  provider      = aws.security
+  bucket        = "${var.project_name}-config-delivery-${var.security_account_id}"
+  force_destroy = var.force_destroy
+
+  tags = {
+    Name        = "${var.project_name}-config-delivery-security"
+    Environment = var.environment
+    ManagedBy   = "terraform"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "config_security" {
+  provider = aws.security
+  bucket   = aws_s3_bucket.config_security.id
+  versioning_configuration { status = "Enabled" }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "config_security" {
+  provider = aws.security
+  bucket   = aws_s3_bucket.config_security.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.config_security.arn
+    }
+    bucket_key_enabled = true
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "config_security" {
+  provider                = aws.security
+  bucket                  = aws_s3_bucket.config_security.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "config_security" {
+  provider = aws.security
+  bucket   = aws_s3_bucket.config_security.id
+
+  rule {
+    id     = "config-delivery-security-retention"
+    status = "Enabled"
+    filter {}
+
+    transition {
+      days          = var.s3_transition_ia_days
+      storage_class = "STANDARD_IA"
+    }
+    transition {
+      days          = var.s3_transition_glacier_days
+      storage_class = "GLACIER"
+    }
+    expiration {
+      days = var.s3_expiration_days # 7 years — ISO 27001 audit log retention
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "config_security" {
+  provider = aws.security
+  bucket   = aws_s3_bucket.config_security.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "DenyNonSSLRequests"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource = [
+          "arn:aws:s3:::${var.project_name}-config-delivery-${var.security_account_id}",
+          "arn:aws:s3:::${var.project_name}-config-delivery-${var.security_account_id}/*"
+        ]
+        Condition = { Bool = { "aws:SecureTransport" = "false" } }
+      },
+      {
+        Sid    = "AllowConfigGetBucketAcl"
+        Effect = "Allow"
+        Principal = { Service = "config.amazonaws.com" }
+        Action   = "s3:GetBucketAcl"
+        Resource = "arn:aws:s3:::${var.project_name}-config-delivery-${var.security_account_id}"
+        Condition = {
+          StringEquals = { "aws:SourceAccount" = var.security_account_id }
+        }
+      },
+      {
+        Sid    = "AllowConfigPutObject"
+        Effect = "Allow"
+        Principal = { Service = "config.amazonaws.com" }
+        Action   = "s3:PutObject"
+        Resource = "arn:aws:s3:::${var.project_name}-config-delivery-${var.security_account_id}/AWSLogs/${var.security_account_id}/Config/*"
+        Condition = {
+          StringEquals = {
+            "s3:x-amz-acl"      = "bucket-owner-full-control"
+            "aws:SourceAccount" = var.security_account_id
+          }
+        }
+      }
+    ]
+  })
+
+  depends_on = [aws_s3_bucket_public_access_block.config_security]
+}
+
+# CIS 3.5: Service-linked role for AWS Config in Security account
+resource "aws_iam_service_linked_role" "config_security" {
+  provider         = aws.security
+  aws_service_name = "config.amazonaws.com"
+  description      = "Service-linked role for AWS Config in security account"
+
+  lifecycle {
+    prevent_destroy = true # role may already exist; import if needed
+  }
+}
+
+# Config recorder in Security account
+resource "aws_config_configuration_recorder" "security" {
+  provider = aws.security
+  name     = "${var.project_name}-config-recorder-security"
+  role_arn = aws_iam_service_linked_role.config_security.arn
+
+  recording_group {
+    all_supported                 = true
+    include_global_resource_types = false # global resources only recorded once (management)
+  }
+
+  depends_on = [aws_iam_service_linked_role.config_security]
+}
+
+# Config delivery channel in Security account
+resource "aws_config_delivery_channel" "security" {
+  provider       = aws.security
+  name           = "${var.project_name}-config-delivery-security"
+  s3_bucket_name = aws_s3_bucket.config_security.id
+  s3_kms_key_arn = aws_kms_key.config_security.arn
+
+  snapshot_delivery_properties {
+    delivery_frequency = "TwentyFour_Hours"
+  }
+
+  depends_on = [aws_config_configuration_recorder.security]
+}
+
+# Enable the recorder in Security account
+resource "aws_config_configuration_recorder_status" "security" {
+  provider   = aws.security
+  name       = aws_config_configuration_recorder.security.name
+  is_enabled = true
+
+  depends_on = [aws_config_delivery_channel.security]
 }
 
 # ═══════════════════════════════════════════════════════════════════════════

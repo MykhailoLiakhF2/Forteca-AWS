@@ -3,7 +3,7 @@
 **Account:** 111111111111 (management) | **Organization:** o-exampleorg  
 **Primary Region:** eu-north-1 (Stockholm) | **DR Region:** eu-west-1 (Ireland)  
 **Environment:** Lab (production-equivalent architecture, relaxed retention for cost)  
-**Last Updated:** 2026-02  
+**Last Updated:** 2026-03  
 
 ---
 
@@ -122,7 +122,7 @@ The infrastructure is fully defined as code using **Terraform** and deployed acr
 | Control | Ref | Implementation | Status |
 |---|---|---|---|
 | Compliance with legal and contractual requirements | A.18.1.3 | All data stored in EU regions (eu-north-1, eu-west-1) only. SCP `deny_region_restriction` enforces this at the Organizations level — no exceptions possible. | ✅ |
-| Review of information security policies | A.18.2.2 | AWS Config evaluates 21 rules continuously across all accounts. Non-compliant evaluations trigger EventBridge → SNS notification. Config aggregator in security account provides organization-wide compliance view. | ✅ |
+| Review of information security policies | A.18.2.2 | AWS Config evaluates 22 rules continuously. Config recorder runs in both management and security accounts using service-linked roles (CIS 3.5). Config aggregator in security account provides organization-wide compliance view. Non-compliant evaluations trigger EventBridge → SNS notification. | ✅ |
 | Technical compliance review | A.18.2.3 | IAM Access Analyzer `forteca-org-access-analyzer` continuously reviews resource policies for unintended public or cross-account access at organization scope. | ✅ |
 
 ---
@@ -136,7 +136,7 @@ The infrastructure is fully defined as code using **Terraform** and deployed acr
 | AWS CloudTrail | Organization trail | Immutable audit log of all API calls |
 | AWS GuardDuty | Management + Security accounts | ML-based threat detection |
 | AWS Security Hub | Security account (delegated admin) | Centralized findings: FSBP, CIS 1.4, PCI DSS |
-| AWS Config | Management account | Resource configuration recording, 21 compliance rules |
+| AWS Config | Management + Security accounts | Resource configuration recording (service-linked role, CIS 3.5), 22 compliance rules |
 | Config Aggregator | Security account | Organization-wide compliance view |
 | IAM Access Analyzer | Management account | Resource policy analysis (organization scope) |
 | AWS Backup | Management account | Automated backups with cross-region DR copies |
@@ -193,6 +193,7 @@ The following controls are intentionally relaxed for cost and operational conven
 │  Security Account (222222222222) — delegated admin              │
 │  ├── GuardDuty (admin) → findings → S3 + EventBridge → SNS      │
 │  ├── Security Hub (admin) → FSBP + CIS 1.4 + PCI DSS            │
+│  ├── Config Recorder (SLR, CIS 3.5) + Delivery Channel          │
 │  ├── Config Aggregator → org-wide compliance view               │
 │  └── IAM Access Analyzer (organization scope)                   │
 └─────────────────────────────────────────────────────────────────┘

@@ -103,7 +103,7 @@ The infrastructure is fully defined as code using **Terraform** and deployed acr
 | Control | Ref | Implementation | Status |
 |---|---|---|---|
 | Reporting information security events | A.16.1.2 | EventBridge rules route GuardDuty HIGH/CRITICAL findings and Security Hub HIGH/CRITICAL findings to SNS `forteca-security-alerts` (security account). Ops-level events (backup failures, Config violations, CloudTrail events) routed to SNS `forteca-ops-alerts` (management account). | ✅ |
-| Response to information security incidents | A.16.1.5 | GuardDuty active in management and security accounts. Security Hub aggregates findings from GuardDuty, AWS Foundational Security Best Practices (FSBP), CIS AWS Foundations Benchmark 1.4, and PCI DSS. | ✅ |
+| Response to information security incidents | A.16.1.5 | GuardDuty active in management and security accounts with Runtime Monitoring enabled (GuardDuty.11 / `aws_guardduty_detector_feature`). Security Hub aggregates findings from GuardDuty, AWS Foundational Security Best Practices (FSBP), CIS AWS Foundations Benchmark 1.4, and PCI DSS. | ✅ |
 
 ---
 
@@ -134,7 +134,7 @@ The infrastructure is fully defined as code using **Terraform** and deployed acr
 | AWS Organizations | Organization | Account isolation, SCP enforcement |
 | Service Control Policies | Organization | Deny region restrictions, protect CloudTrail, deny root usage |
 | AWS CloudTrail | Organization trail | Immutable audit log of all API calls |
-| AWS GuardDuty | Management + Security accounts | ML-based threat detection |
+| AWS GuardDuty | Management + Security accounts | ML-based threat detection; Runtime Monitoring enabled (GuardDuty.11) |
 | AWS Security Hub | Security account (delegated admin) | Centralized findings: FSBP, CIS 1.4, PCI DSS |
 | AWS Config | Management + Security accounts | Resource configuration recording (service-linked role, CIS 3.5), 22 compliance rules |
 | Config Aggregator | Security account | Organization-wide compliance view |

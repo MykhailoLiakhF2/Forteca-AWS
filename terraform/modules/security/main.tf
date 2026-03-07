@@ -334,6 +334,66 @@ resource "aws_guardduty_publishing_destination" "s3" {
   ]
 }
 
+# Step 4: Enable Runtime Monitoring on both detectors.
+# GuardDuty.11 (HIGH) — Security Hub checks that Runtime Monitoring is enabled
+# for the delegated admin account AND all member accounts.
+# Runtime Monitoring monitors process-level activity on EC2, ECS Fargate, and EKS.
+# It cannot be set via datasources{} block — requires aws_guardduty_detector_feature.
+#
+# Sub-features:
+#   EKS_ADDON_MANAGEMENT         — auto-deploys GuardDuty security agent to EKS nodes
+#   ECS_FARGATE_AGENT_MANAGEMENT — auto-deploys agent to Fargate tasks
+#   EC2_AGENT_MANAGEMENT         — auto-deploys agent to EC2 instances via SSM
+
+# Runtime Monitoring — Management account detector
+resource "aws_guardduty_detector_feature" "runtime_monitoring_management" {
+  provider    = aws.management
+  detector_id = aws_guardduty_detector.management.id
+  name        = "RUNTIME_MONITORING"
+  status      = "ENABLED"
+
+  additional_configuration {
+    name   = "EKS_ADDON_MANAGEMENT"
+    status = "ENABLED"
+  }
+
+  additional_configuration {
+    name   = "ECS_FARGATE_AGENT_MANAGEMENT"
+    status = "ENABLED"
+  }
+
+  additional_configuration {
+    name   = "EC2_AGENT_MANAGEMENT"
+    status = "ENABLED"
+  }
+}
+
+# Runtime Monitoring — Security account detector (delegated admin)
+# Uses data source ID because AWS auto-created this detector on delegation
+resource "aws_guardduty_detector_feature" "runtime_monitoring_security" {
+  provider    = aws.security
+  detector_id = data.aws_guardduty_detector.security.id
+  name        = "RUNTIME_MONITORING"
+  status      = "ENABLED"
+
+  additional_configuration {
+    name   = "EKS_ADDON_MANAGEMENT"
+    status = "ENABLED"
+  }
+
+  additional_configuration {
+    name   = "ECS_FARGATE_AGENT_MANAGEMENT"
+    status = "ENABLED"
+  }
+
+  additional_configuration {
+    name   = "EC2_AGENT_MANAGEMENT"
+    status = "ENABLED"
+  }
+
+  depends_on = [data.aws_guardduty_detector.security]
+}
+
 # ═══════════════════════════════════════════════════════════════════════════
 # SECURITY HUB
 # Flow: enable in mgmt → delegate to security → configure org-wide → enable standards

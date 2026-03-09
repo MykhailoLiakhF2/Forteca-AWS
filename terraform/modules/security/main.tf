@@ -1101,3 +1101,41 @@ resource "aws_cloudwatch_event_target" "guardduty_to_sns" {
     EOT
   }
 }
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SSM DOCUMENTS
+# SSM.7 — Block public sharing of SSM documents at account level
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Management account — block SSM document public sharing
+resource "aws_ssm_service_setting" "block_public_sharing_management" {
+  provider      = aws.management
+  setting_id    = "/ssm/documents/console/public-sharing-permission"
+  setting_value = "Disable"
+}
+
+# Security account — block SSM document public sharing
+resource "aws_ssm_service_setting" "block_public_sharing_security" {
+  provider      = aws.security
+  setting_id    = "/ssm/documents/console/public-sharing-permission"
+  setting_value = "Disable"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AMAZON INSPECTOR V2
+# Inspector.2 — Enable Inspector v2 with ECR and EC2 scanning
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Enable Inspector v2 with ECR scanning — Management account
+resource "aws_inspector2_enabler" "management" {
+  provider       = aws.management
+  account_ids    = [var.aws_account_id]
+  resource_types = ["ECR", "EC2"]
+}
+
+# Enable Inspector v2 with ECR scanning — Security account
+resource "aws_inspector2_enabler" "security" {
+  provider       = aws.security
+  account_ids    = [var.security_account_id]
+  resource_types = ["ECR", "EC2"]
+}

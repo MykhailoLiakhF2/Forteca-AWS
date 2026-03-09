@@ -1139,3 +1139,23 @@ resource "aws_inspector2_enabler" "security" {
   account_ids    = [var.security_account_id]
   resource_types = ["ECR", "EC2"]
 }
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EBS SNAPSHOT PUBLIC ACCESS BLOCK
+# EC2.182 (HIGH) — block public sharing of EBS snapshots at account level.
+# AWS default allows EBS snapshots to be shared publicly.
+# This setting explicitly blocks all public sharing org-wide.
+# Must be set in every account — Security Hub checks per-account.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Management account — block EBS snapshot public access
+resource "aws_ebs_snapshot_block_public_access" "management" {
+  provider = aws.management
+  state    = "block-all-sharing"
+}
+
+# Security account — block EBS snapshot public access
+resource "aws_ebs_snapshot_block_public_access" "security" {
+  provider = aws.security
+  state    = "block-all-sharing"
+}

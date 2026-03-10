@@ -394,6 +394,68 @@ resource "aws_guardduty_detector_feature" "runtime_monitoring_security" {
   depends_on = [data.aws_guardduty_detector.security]
 }
 
+# Step 5: Additional GuardDuty Features (Management Account)
+resource "aws_guardduty_detector_feature" "eks_audit_management" {
+  provider    = aws.management
+  detector_id = aws_guardduty_detector.management.id
+  name        = "EKS_AUDIT_LOGS"
+  status      = "ENABLED"
+}
+
+resource "aws_guardduty_detector_feature" "lambda_network_management" {
+  provider    = aws.management
+  detector_id = aws_guardduty_detector.management.id
+  name        = "LAMBDA_NETWORK_LOGS"
+  status      = "ENABLED"
+}
+
+resource "aws_guardduty_detector_feature" "rds_login_management" {
+  provider    = aws.management
+  detector_id = aws_guardduty_detector.management.id
+  name        = "RDS_LOGIN_EVENTS"
+  status      = "ENABLED"
+}
+
+resource "aws_guardduty_detector_feature" "s3_data_management" {
+  provider    = aws.management
+  detector_id = aws_guardduty_detector.management.id
+  name        = "S3_DATA_EVENTS"
+  status      = "ENABLED"
+}
+
+# Step 6: Additional GuardDuty Features (Security Account)
+resource "aws_guardduty_detector_feature" "eks_audit_security" {
+  provider    = aws.security
+  detector_id = data.aws_guardduty_detector.security.id
+  name        = "EKS_AUDIT_LOGS"
+  status      = "ENABLED"
+  depends_on  = [data.aws_guardduty_detector.security]
+}
+
+resource "aws_guardduty_detector_feature" "lambda_network_security" {
+  provider    = aws.security
+  detector_id = data.aws_guardduty_detector.security.id
+  name        = "LAMBDA_NETWORK_LOGS"
+  status      = "ENABLED"
+  depends_on  = [data.aws_guardduty_detector.security]
+}
+
+resource "aws_guardduty_detector_feature" "rds_login_security" {
+  provider    = aws.security
+  detector_id = data.aws_guardduty_detector.security.id
+  name        = "RDS_LOGIN_EVENTS"
+  status      = "ENABLED"
+  depends_on  = [data.aws_guardduty_detector.security]
+}
+
+resource "aws_guardduty_detector_feature" "s3_data_security" {
+  provider    = aws.security
+  detector_id = data.aws_guardduty_detector.security.id
+  name        = "S3_DATA_EVENTS"
+  status      = "ENABLED"
+  depends_on  = [data.aws_guardduty_detector.security]
+}
+
 # ═══════════════════════════════════════════════════════════════════════════
 # SECURITY HUB
 # Flow: enable in mgmt → delegate to security → configure org-wide → enable standards
@@ -1126,18 +1188,18 @@ resource "aws_ssm_service_setting" "block_public_sharing_security" {
 # Inspector.2 — Enable Inspector v2 with ECR and EC2 scanning
 # ═══════════════════════════════════════════════════════════════════════════
 
-# Enable Inspector v2 with ECR scanning — Management account
+# Enable Inspector v2 with ECR, EC2, and LAMBDA scanning — Management account
 resource "aws_inspector2_enabler" "management" {
   provider       = aws.management
   account_ids    = [var.aws_account_id]
-  resource_types = ["ECR", "EC2"]
+  resource_types = ["ECR", "EC2", "LAMBDA"]
 }
 
-# Enable Inspector v2 with ECR scanning — Security account
+# Enable Inspector v2 with ECR, EC2, and LAMBDA scanning — Security account
 resource "aws_inspector2_enabler" "security" {
   provider       = aws.security
   account_ids    = [var.security_account_id]
-  resource_types = ["ECR", "EC2"]
+  resource_types = ["ECR", "EC2", "LAMBDA"]
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1158,4 +1220,32 @@ resource "aws_ebs_snapshot_block_public_access" "management" {
 resource "aws_ebs_snapshot_block_public_access" "security" {
   provider = aws.security
   state    = "block-all-sharing"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# VPC DEFAULT SECURITY GROUP
+# CIS 4.3 / CIS 5.3 / EC2.2 / PCI.EC2.2
+# The default security group of every VPC should restrict all traffic.
+# ═══════════════════════════════════════════════════════════════════════════
+
+data "aws_vpc" "management_default" {
+  provider = aws.management
+  default  = true
+}
+
+resource "aws_default_security_group" "management_default" {
+  provider = aws.management
+  vpc_id   = data.aws_vpc.management_default.id
+  # No ingress/egress blocks acts to deny all traffic
+}
+
+data "aws_vpc" "security_default" {
+  provider = aws.security
+  default  = true
+}
+
+resource "aws_default_security_group" "security_default" {
+  provider = aws.security
+  vpc_id   = data.aws_vpc.security_default.id
+  # No ingress/egress blocks acts to deny all traffic
 }

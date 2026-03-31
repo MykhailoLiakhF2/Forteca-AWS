@@ -456,6 +456,24 @@ resource "aws_guardduty_detector_feature" "s3_data_security" {
   depends_on  = [data.aws_guardduty_detector.security]
 }
 
+# GuardDuty.8 — Malware Protection for EC2 (EBS volume scanning)
+# Security Hub checks EBS_MALWARE_PROTECTION detector feature, not the legacy
+# datasources.malware_protection block. Both must be present.
+resource "aws_guardduty_detector_feature" "ebs_malware_management" {
+  provider    = aws.management
+  detector_id = aws_guardduty_detector.management.id
+  name        = "EBS_MALWARE_PROTECTION"
+  status      = "ENABLED"
+}
+
+resource "aws_guardduty_detector_feature" "ebs_malware_security" {
+  provider    = aws.security
+  detector_id = data.aws_guardduty_detector.security.id
+  name        = "EBS_MALWARE_PROTECTION"
+  status      = "ENABLED"
+  depends_on  = [data.aws_guardduty_detector.security]
+}
+
 # ═══════════════════════════════════════════════════════════════════════════
 # SECURITY HUB
 # Flow: enable in mgmt → delegate to security → configure org-wide → enable standards
